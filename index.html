@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>식단 룰렛</title>
+<style>
+  :root {
+    --bg: #FFF8F0;
+    --surface: #FFFFFF;
+    --ink: #3D3A4B;
+    --muted: #6E6A7D;
+    --line: #F1E7DD;
+    --coral: #FF8A80;
+    --coral-hover: #FFA59C;
+    --coral-strong: #F26B61;
+    --coral-text: #C2453C;
+    --ok: #2E7D5B;
+    --mint: #C9F0E0;
+    --lavender: #DCE0F5;
+    --lemon: #FFF1A8;
+    --lemon-strong: #F2DE6B;
+    --shadow: 0 6px 20px rgba(61, 58, 75, 0.08);
+    --radius: 18px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  main {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 28px 16px 96px; /* 아래쪽은 되돌리기 알림이 내용을 가리지 않게 넉넉히 둔다 */
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  header { text-align: center; }
+  h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+  h2 { margin: 0; font-size: 16px; }
+
+  button { font: inherit; cursor: pointer; }
+  button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+    outline: 3px solid #B9C1EE;
+    outline-offset: 2px;
+  }
+
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 18px;
+  }
+
+  .label { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--muted); }
+
+  /* 필터 */
+  .seg {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin-bottom: 16px;
+    padding: 4px;
+    background: var(--bg);
+    border-radius: 14px;
+  }
+  .seg button {
+    border: 0;
+    background: transparent;
+    padding: 10px 0;
+    border-radius: 10px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+  .seg button[aria-pressed="true"] {
+    background: var(--surface);
+    color: var(--coral-text);
+    box-shadow: 0 2px 8px rgba(61, 58, 75, 0.1);
+  }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    border: 1.5px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 14px;
+  }
+  .chip[aria-pressed="true"] {
+    background: var(--lemon);
+    border-color: var(--lemon-strong);
+    font-weight: 700;
+  }
+
+  .info { margin: 14px 0 0; font-size: 13px; color: var(--muted); }
+  .notice { margin: 6px 0 0; font-size: 13px; font-weight: 700; color: var(--coral-text); }
+  /* 라이브 영역은 비어 있어도 화면 낭독기가 변화를 알아채도록 숨기지 않고 여백만 없앤다 */
+  .notice:empty { margin: 0; }
+
+  /* 룰렛 */
+  .wheel {
+    position: relative;
+    width: min(100%, 340px);
+    margin: 14px auto 4px;
+  }
+  .wheel canvas {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    box-shadow: 0 10px 30px rgba(242, 107, 97, 0.18);
+    /* 회전 시간은 spin()에서 SPIN_MS로 정한다 */
+    transition-property: transform;
+    transition-timing-function: cubic-bezier(0.17, 0.67, 0.12, 0.99);
+  }
+  .pointer {
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    z-index: 2;
+    width: 0;
+    height: 0;
+    transform: translateX(-50%);
+    border-left: 14px solid transparent;
+    border-right: 14px solid transparent;
+    border-top: 26px solid var(--coral-strong);
+    filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.15));
+  }
+  .spin {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 88px;
+    height: 88px;
+    transform: translate(-50%, -50%);
+    border: 5px solid var(--surface);
+    border-radius: 50%;
+    background: var(--coral);
+    color: var(--ink);
+    font-size: 17px;
+    font-weight: 800;
+    box-shadow: 0 6px 16px rgba(242, 107, 97, 0.35);
+  }
+  .spin:hover:not(:disabled) { background: var(--coral-hover); }
+  .spin:disabled { background: #CFCBD6; color: #fff; box-shadow: none; cursor: not-allowed; }
+
+  /* 결과 */
+  .result { text-align: center; }
+  .result p { margin: 0; }
+  .result .eyebrow { font-size: 13px; font-weight: 700; color: var(--muted); }
+  .result .name { margin: 2px 0; font-size: 34px; font-weight: 800; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+  .result .name.placeholder { color: #D6D1DD; }
+  .result .meta { font-size: 14px; color: var(--muted); }
+  .result.pop { animation: pop 0.45s ease-out; }
+  @keyframes pop {
+    0% { transform: scale(0.92); opacity: 0.3; }
+    60% { transform: scale(1.03); opacity: 1; }
+    100% { transform: scale(1); }
+  }
+
+  /* 기록 */
+  .row-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .link {
+    min-height: 44px;
+    border: 0;
+    background: none;
+    padding: 0 8px;
+    color: var(--muted);
+    font-size: 13px;
+    text-decoration: underline;
+  }
+  .link:disabled { visibility: hidden; }
+  .history { list-style: none; margin: 0; padding: 0; }
+  .history li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
+    font-size: 14px;
+  }
+  .history li:first-child { border-top: 0; }
+  .history .time { min-width: 80px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .history b { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .tag {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--mint);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .tag.cat { background: var(--lavender); }
+  .empty { margin: 0; color: var(--muted); font-size: 14px; }
+
+  /* 메뉴 관리 */
+  summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    list-style: none;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary .count { font-size: 13px; font-weight: 700; color: var(--muted); }
+  summary::after { content: "▾"; margin-left: auto; color: var(--muted); }
+  details[open] summary::after { content: "▴"; }
+
+  .add-form {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    margin: 14px 0 6px;
+  }
+  input[type="text"], select {
+    min-width: 0;
+    padding: 9px 12px;
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+  }
+  input[aria-invalid="true"] { border-color: var(--coral-text); }
+  .meal-checks { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; font-size: 14px; }
+  .meal-checks label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .meal-checks input { accent-color: var(--coral-strong); }
+  .btn {
+    border: 0;
+    border-radius: 10px;
+    padding: 9px 18px;
+    background: var(--coral);
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .btn:hover { background: var(--coral-hover); }
+  .form-msg { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--coral-text); }
+  .form-msg.ok { color: var(--ok); }
+  .form-msg:empty { margin: 0; }
+
+  .menu-list { list-style: none; max-height: 320px; overflow-y: auto; margin: 8px 0 12px; padding: 0; }
+  .menu-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 48px;
+    padding: 4px 0;
+    border-top: 1px solid var(--line);
+  }
+  .menu-list .mname {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 14px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .menu-list .meals { flex-shrink: 0; font-size: 12px; color: var(--muted); }
+  .del {
+    position: relative;
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--muted);
+  }
+  /* 보이는 크기는 36px로 두고, 누를 수 있는 영역만 44px로 넓힌다 */
+  .del::before { content: ""; position: absolute; inset: -4px; }
+  .del:hover { background: #FFE1DE; color: var(--coral-text); }
+
+  /* 되돌리기 알림 */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 16px;
+    z-index: 10;
+    width: min(calc(100% - 32px), 448px);
+    transform: translateX(-50%);
+  }
+  .toast-box {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 4px 4px 16px;
+    border-radius: 14px;
+    background: var(--ink);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(61, 58, 75, 0.3);
+  }
+  .toast-box .toast-msg { flex: 1; min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
+  .toast-box button {
+    flex-shrink: 0;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--lemon);
+    font-weight: 800;
+  }
+  .toast-box button[data-action="close"] { color: #fff; font-weight: 400; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .result.pop { animation: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>오늘 뭐 먹지? 🍽️</h1>
+    <p>룰렛을 돌려 오늘의 메뉴를 정해요</p>
+  </header>
+
+  <section class="card">
+    <p class="label">끼니</p>
+    <div class="seg" id="mealTabs"></div>
+    <p class="label">카테고리</p>
+    <div class="chips" id="chips"></div>
+    <p class="info" id="info"></p>
+    <p class="notice" id="notice" role="status"></p>
+
+    <div class="wheel">
+      <div class="pointer" aria-hidden="true"></div>
+      <canvas id="wheel" role="img" aria-label="메뉴 룰렛 원판"></canvas>
+      <button type="button" class="spin" id="spinBtn">돌리기</button>
+    </div>
+  </section>
+
+  <section class="card result" id="result" aria-live="polite">
+    <p class="eyebrow">오늘의 메뉴</p>
+    <p class="name placeholder">?</p>
+    <p class="meta">룰렛을 돌려 보세요</p>
+  </section>
+
+  <section class="card">
+    <div class="row-head">
+      <h2>최근 기록</h2>
+      <button type="button" class="link" id="clearHistory">기록 지우기</button>
+    </div>
+    <div id="history"></div>
+  </section>
+
+  <details class="card">
+    <summary>메뉴 관리 <span class="count" id="menuCount"></span></summary>
+    <form class="add-form" id="addForm" autocomplete="off">
+      <input type="text" id="menuName" placeholder="메뉴 이름" maxlength="20" aria-label="메뉴 이름" aria-describedby="formMsg">
+      <select id="menuCategory" aria-label="카테고리"></select>
+      <div class="meal-checks" id="mealChecks" role="group" aria-label="끼니"></div>
+      <button type="submit" class="btn">추가</button>
+    </form>
+    <p class="form-msg" id="formMsg" role="status"></p>
+    <ul class="menu-list" id="menuList"></ul>
+    <button type="button" class="link" id="resetMenus">기본 목록으로 초기화</button>
+  </details>
+</main>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+  const CATEGORIES = ['한식', '중식', '일식', '양식', '분식', '기타'];
+  const MEALS = { breakfast: '아침', lunch: '점심', dinner: '저녁' };
+  const MAX_SLICES = 12;
+  const MAX_HISTORY = 50; // 저장해 두는 기록 수
+  const HISTORY_SHOWN = 10; // 화면에 보여 주는 기록 수
+  const SPIN_MS = 4000;
+  const REDUCED_SPIN_MS = 300; // '동작 줄이기' 설정일 때
+  const KEYS = { menus: 'mealRoulette.menus', history: 'mealRoulette.history' };
+  const SLICE_COLORS = [
+    '#FFB5A7', '#B5EAD7', '#C7CEEA', '#FFDAC1', '#E2F0CB', '#CDB4DB',
+    '#FCD5CE', '#A2D2FF', '#F9F1A5', '#FFC8DD', '#BDE0FE', '#D8F3DC',
+  ];
+  const FONT = '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
+
+  const B = 'breakfast', L = 'lunch', D = 'dinner';
+  const DEFAULT_MENUS = [
+    ['한식', '김치찌개', [L, D]],
+    ['한식', '된장찌개', [B, L, D]],
+    ['한식', '비빔밥', [L, D]],
+    ['한식', '불고기', [L, D]],
+    ['한식', '삼겹살', [D]],
+    ['한식', '제육볶음', [L, D]],
+    ['한식', '국밥', [B, L, D]],
+    ['한식', '콩나물국밥', [B, L]],
+    ['중식', '짜장면', [L, D]],
+    ['중식', '짬뽕', [L, D]],
+    ['중식', '탕수육', [D]],
+    ['중식', '마라탕', [L, D]],
+    ['중식', '볶음밥', [L, D]],
+    ['일식', '초밥', [L, D]],
+    ['일식', '돈카츠', [L, D]],
+    ['일식', '라멘', [L, D]],
+    ['일식', '우동', [L, D]],
+    ['일식', '규동', [L, D]],
+    ['양식', '파스타', [L, D]],
+    ['양식', '피자', [L, D]],
+    ['양식', '햄버거', [L, D]],
+    ['양식', '스테이크', [D]],
+    ['양식', '샐러드', [B, L]],
+    ['분식', '떡볶이', [L, D]],
+    ['분식', '김밥', [B, L]],
+    ['분식', '라면', [B, L, D]],
+    ['분식', '순대', [L, D]],
+    ['기타', '토스트', [B]],
+    ['기타', '샌드위치', [B, L]],
+    ['기타', '시리얼', [B]],
+    ['기타', '죽', [B]],
+    ['기타', '쌀국수', [L, D]],
+    ['기타', '치킨', [D]],
+  ].map(([category, name, meals], i) => ({ id: `d${i + 1}`, name, category, meals }));
+
+  const cloneDefaults = () => DEFAULT_MENUS.map(m => ({ ...m, meals: [...m.meals] }));
+
+  // localStorage는 막혀 있거나 비어 있을 수 있어서 모든 접근을 감싼다
+  const store = {
+    get(key) {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    },
+    set(key, value) {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch {
+        // 저장 실패 시 이번 세션 메모리로만 동작한다
+      }
+    },
+  };
+
+  // 저장값은 다른 탭, 확장 프로그램, 사용자가 바꿀 수 있어서 화면에 그리기 전에 형태를 확인한다
+  const isValidMenu = m =>
+    m && typeof m.id === 'string' && typeof m.name === 'string' && m.name.trim() !== '' &&
+    CATEGORIES.includes(m.category) &&
+    Array.isArray(m.meals) && m.meals.every(k => Object.hasOwn(MEALS, k));
+
+  const isValidHistory = h =>
+    h && typeof h.menuId === 'string' && typeof h.name === 'string' &&
+    Object.hasOwn(MEALS, h.meal) && typeof h.at === 'string' && !Number.isNaN(Date.parse(h.at));
+
+  function loadMenus() {
+    const saved = store.get(KEYS.menus);
+    if (!Array.isArray(saved)) return cloneDefaults();
+    const valid = saved.filter(isValidMenu);
+    // 일부러 다 지운 []는 그대로 두고, 형식이 하나도 맞지 않으면 기본 목록으로 시작한다
+    return valid.length === 0 && saved.length > 0 ? cloneDefaults() : valid;
+  }
+
+  function loadHistory() {
+    const saved = store.get(KEYS.history);
+    return Array.isArray(saved) ? saved.filter(isValidHistory).slice(0, MAX_HISTORY) : [];
+  }
+
+  let menus = loadMenus();
+  let historyItems = loadHistory();
+  let meal = defaultMeal();
+  const selectedCats = new Set();
+  let wheelItems = [];
+  let rotation = 0;
+  let spinning = false;
+  let wheelStale = false;
+  let pendingUndo = null; // 되돌리기 알림이 떠 있는 동안 { undo, returnFocus }
+
+  const $ = id => document.getElementById(id);
+  const canvas = $('wheel');
+  const ctx = canvas.getContext('2d');
+  const spinBtn = $('spinBtn');
+  const nameInput = $('menuName');
+
+  function defaultMeal() {
+    const hour = new Date().getHours();
+    return hour < 10 ? B : hour < 16 ? L : D;
+  }
+
+  const dayKey = date => `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  const esc = s => String(s).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+
+  function formatTime(iso) {
+    const d = new Date(iso);
+    const p = n => String(n).padStart(2, '0');
+    return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  const saveMenus = () => store.set(KEYS.menus, menus);
+  const saveHistory = () => store.set(KEYS.history, historyItems);
+
+  const isMealPressed = key => key === meal;
+  const isCatPressed = cat => (cat === '' ? selectedCats.size === 0 : selectedCats.has(cat));
+
+  // 끼니·카테고리에 맞는 메뉴 중 오늘 나온 것을 뺀다. 다 빠지면 다시 포함한다.
+  function getCandidates() {
+    const today = dayKey(new Date());
+    const todayIds = new Set(
+      historyItems.filter(h => dayKey(new Date(h.at)) === today).map(h => h.menuId)
+    );
+    const base = menus.filter(m =>
+      m.meals.includes(meal) && (selectedCats.size === 0 || selectedCats.has(m.category))
+    );
+    const fresh = base.filter(m => !todayIds.has(m.id));
+    if (fresh.length === 0 && base.length > 0) {
+      return { pool: base, excluded: 0, refilled: true };
+    }
+    return { pool: fresh, excluded: base.length - fresh.length, refilled: false };
+  }
+
+  function renderInfo() {
+    const { pool, excluded, refilled } = getCandidates();
+    if (pool.length === 0) {
+      $('info').textContent = '조건에 맞는 메뉴가 없어요. 필터를 바꾸거나 메뉴를 추가해 보세요.';
+    } else {
+      const parts = [
+        pool.length > MAX_SLICES ? `후보 ${pool.length}개 중 ${MAX_SLICES}개 표시` : `후보 ${pool.length}개`,
+      ];
+      if (excluded) parts.push(`오늘 나온 ${excluded}개 제외`);
+      $('info').textContent = parts.join(' · ');
+    }
+    $('notice').textContent = refilled ? '오늘 나온 메뉴만 남아서 다시 포함했어요' : '';
+    spinBtn.disabled = spinning || pool.length === 0;
+    return pool;
+  }
+
+  function buildWheel() {
+    const pool = renderInfo();
+    if (spinning) {
+      // 도는 중에는 원판을 바꾸지 않고, 다음 판에 다시 만든다
+      wheelStale = true;
+      return;
+    }
+    wheelItems = shuffle([...pool]).slice(0, MAX_SLICES);
+    wheelStale = false;
+    drawWheel();
+  }
+
+  function drawWheel() {
+    const size = canvas.clientWidth;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(size * dpr);
+    canvas.height = Math.round(size * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const r = size / 2;
+    ctx.clearRect(0, 0, size, size);
+
+    if (wheelItems.length === 0) {
+      ctx.beginPath();
+      ctx.arc(r, r, r - 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#EEEAF2';
+      ctx.fill();
+      return;
+    }
+
+    const n = wheelItems.length;
+    const slice = (Math.PI * 2) / n;
+    const scale = size / 340;
+    const fontSize = Math.round((n <= 6 ? 18 : n <= 9 ? 16 : 14) * scale);
+    const textEnd = r - 18 * scale;
+    const maxTextWidth = textEnd - 52 * scale; // 가운데 버튼과 겹치지 않게
+
+    wheelItems.forEach((item, i) => {
+      // 칸 0이 12시 방향에서 시작해 시계 방향으로 이어진다
+      const start = -Math.PI / 2 + i * slice;
+      ctx.beginPath();
+      ctx.moveTo(r, r);
+      ctx.arc(r, r, r - 4, start, start + slice);
+      ctx.closePath();
+      ctx.fillStyle = SLICE_COLORS[i % SLICE_COLORS.length];
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.stroke();
+
+      ctx.save();
+      ctx.translate(r, r);
+      ctx.rotate(start + slice / 2);
+      ctx.font = `700 ${fontSize}px ${FONT}`;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#3D3A4B';
+      let label = item.name;
+      if (ctx.measureText(label).width > maxTextWidth) {
+        while (label.length > 1 && ctx.measureText(label + '…').width > maxTextWidth) {
+          label = label.slice(0, -1);
+        }
+        label += '…';
+      }
+      ctx.fillText(label, textEnd, 0);
+      ctx.restore();
+    });
+
+    ctx.beginPath();
+    ctx.arc(r, r, r - 3, 0, Math.PI * 2);
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.stroke();
+  }
+
+  function spin() {
+    if (spinning) return;
+    if (wheelStale) buildWheel();
+    if (wheelItems.length === 0) return;
+
+    spinning = true;
+    spinBtn.disabled = true;
+
+    const n = wheelItems.length;
+    const sliceDeg = 360 / n;
+    const index = Math.floor(Math.random() * n);
+    const winner = wheelItems[index];
+    const spinMeal = meal;
+
+    // '동작 줄이기' 설정이면 바퀴를 돌리지 않고 당첨 칸까지만 짧게 움직인다
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    const duration = reduceMotion ? REDUCED_SPIN_MS : SPIN_MS;
+    const turns = reduceMotion ? 0 : 5 + Math.floor(Math.random() * 3);
+
+    // 캔버스를 R도 돌리면 칸 i의 중심이 12시에 오려면 R ≡ -(i + 0.5) * sliceDeg (mod 360)
+    const jitter = (Math.random() - 0.5) * 0.7; // 칸 안에서 멈추는 위치를 조금씩 흔든다
+    const desired = (((360 - (index + 0.5 + jitter) * sliceDeg) % 360) + 360) % 360;
+    rotation = Math.ceil(rotation / 360) * 360 + turns * 360 + desired;
+
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      canvas.removeEventListener('transitionend', onEnd);
+      clearTimeout(fallback);
+      finishSpin(winner, spinMeal);
+    };
+    const onEnd = e => {
+      if (e.propertyName === 'transform') done();
+    };
+    // transitionend가 오지 않는 경우(탭 전환 등)를 대비한 안전장치
+    const fallback = setTimeout(done, duration + 300);
+    canvas.addEventListener('transitionend', onEnd);
+    canvas.style.transitionDuration = `${duration}ms`;
+    canvas.style.transform = `rotate(${rotation}deg)`;
+  }
+
+  function finishSpin(winner, spinMeal) {
+    spinning = false;
+    historyItems.unshift({
+      menuId: winner.id,
+      name: winner.name,
+      category: winner.category,
+      meal: spinMeal,
+      at: new Date().toISOString(),
+    });
+    historyItems = historyItems.slice(0, MAX_HISTORY);
+    saveHistory();
+
+    renderResult(winner, spinMeal);
+    renderHistory();
+    // 멈춘 원판은 그대로 보여주고, 다음에 돌릴 때 새 후보로 다시 만든다
+    wheelStale = true;
+    renderInfo();
+  }
+
+  function renderResult(item, mealKey) {
+    const card = $('result');
+    card.innerHTML = `
+      <p class="eyebrow">오늘의 ${MEALS[mealKey]} 메뉴</p>
+      <p class="name">${esc(item.name)}</p>
+      <p class="meta">${esc(item.category)}</p>`;
+    card.classList.remove('pop');
+    void card.offsetWidth; // 애니메이션을 다시 시작하려고 reflow를 일으킨다
+    card.classList.add('pop');
+  }
+
+  function renderHistory() {
+    const items = historyItems.slice(0, HISTORY_SHOWN);
+    $('clearHistory').disabled = historyItems.length === 0;
+    $('history').innerHTML = items.length
+      ? `<ul class="history">${items.map(h => `
+          <li>
+            <span class="time">${formatTime(h.at)}</span>
+            <span class="tag">${MEALS[h.meal]}</span>
+            <b>${esc(h.name)}</b>
+          </li>`).join('')}</ul>`
+      : '<p class="empty">아직 기록이 없어요</p>';
+  }
+
+  function renderFilters() {
+    $('mealTabs').innerHTML = Object.entries(MEALS).map(([key, label]) =>
+      `<button type="button" data-meal="${key}" aria-pressed="${isMealPressed(key)}">${label}</button>`
+    ).join('');
+    $('chips').innerHTML = [['', '전체'], ...CATEGORIES.map(c => [c, c])].map(([value, label]) =>
+      `<button type="button" class="chip" data-cat="${value}" aria-pressed="${isCatPressed(value)}">${label}</button>`
+    ).join('');
+  }
+
+  // 버튼을 다시 그리면 키보드 포커스가 사라지므로, 처음 한 번만 그리고 이후에는 눌림 상태만 바꾼다
+  function syncPressed() {
+    for (const btn of $('mealTabs').querySelectorAll('button[data-meal]')) {
+      btn.setAttribute('aria-pressed', String(isMealPressed(btn.dataset.meal)));
+    }
+    for (const btn of $('chips').querySelectorAll('button[data-cat]')) {
+      btn.setAttribute('aria-pressed', String(isCatPressed(btn.dataset.cat)));
+    }
+  }
+
+  function renderMenuList() {
+    $('menuCount').textContent = `${menus.length}개`;
+    const sorted = [...menus].sort((a, b) =>
+      CATEGORIES.indexOf(a.category) - CATEGORIES.indexOf(b.category)
+    );
+    $('menuList').innerHTML = sorted.length
+      ? sorted.map(m => `
+          <li>
+            <span class="tag cat">${esc(m.category)}</span>
+            <span class="mname">${esc(m.name)}</span>
+            <span class="meals">${Object.keys(MEALS).filter(k => m.meals.includes(k)).map(k => MEALS[k]).join('·')}</span>
+            <button type="button" class="del" data-id="${esc(m.id)}" aria-label="${esc(m.name)} 삭제">✕</button>
+          </li>`).join('')
+      : '<li class="empty">메뉴가 없어요. 위에서 추가해 보세요.</li>';
+  }
+
+  const findDeleteButton = id =>
+    [...$('menuList').querySelectorAll('.del')].find(btn => btn.dataset.id === id);
+
+  function renderForm() {
+    $('menuCategory').innerHTML = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
+    $('mealChecks').innerHTML = Object.entries(MEALS).map(([key, label]) => `
+      <label><input type="checkbox" value="${key}" ${key === B ? '' : 'checked'}> ${label}</label>`
+    ).join('');
+  }
+
+  function setFormMsg(text, ok = false) {
+    const msg = $('formMsg');
+    msg.textContent = text;
+    msg.classList.toggle('ok', ok);
+  }
+
+  function showFormError(text, field) {
+    setFormMsg(text);
+    if (field === nameInput) nameInput.setAttribute('aria-invalid', 'true');
+    field?.focus();
+  }
+
+  // 지우기·초기화는 확인 창 대신 되돌리기로 실수를 복구한다.
+  // returnFocus는 되돌리지 않고 닫았을 때 포커스를 돌려줄 요소를 고른다.
+  function showToast(message, undo, returnFocus) {
+    pendingUndo = { undo, returnFocus };
+    $('toast').innerHTML = `
+      <div class="toast-box">
+        <span class="toast-msg">${esc(message)}</span>
+        <button type="button" data-action="undo">되돌리기</button>
+        <button type="button" data-action="close" aria-label="알림 닫기">✕</button>
+      </div>`;
+  }
+
+  function closeToast() {
+    pendingUndo = null;
+    $('toast').innerHTML = '';
+  }
+
+  // 이벤트
+  $('mealTabs').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-meal]');
+    if (!btn) return;
+    meal = btn.dataset.meal;
+    syncPressed();
+    buildWheel();
+  });
+
+  $('chips').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-cat]');
+    if (!btn) return;
+    const cat = btn.dataset.cat;
+    if (cat === '') selectedCats.clear();
+    else if (selectedCats.has(cat)) selectedCats.delete(cat);
+    else selectedCats.add(cat);
+    syncPressed();
+    buildWheel();
+  });
+
+  spinBtn.addEventListener('click', spin);
+
+  $('clearHistory').addEventListener('click', () => {
+    const cleared = historyItems;
+    historyItems = [];
+    saveHistory();
+    renderHistory();
+    buildWheel();
+    showToast('기록을 지웠어요', () => {
+      // 지운 뒤에 새로 생긴 기록이 더 최근이므로 앞에 둔다
+      historyItems = [...historyItems, ...cleared].slice(0, MAX_HISTORY);
+      saveHistory();
+      renderHistory();
+      buildWheel();
+      $('clearHistory').focus();
+    }, () => spinBtn);
+    // 누른 버튼이 사라졌으니 되돌리기 버튼으로 포커스를 옮긴다
+    $('toast').querySelector('button[data-action="undo"]')?.focus();
+  });
+
+  nameInput.addEventListener('input', () => nameInput.removeAttribute('aria-invalid'));
+
+  $('addForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    const category = $('menuCategory').value;
+    const meals = [...$('mealChecks').querySelectorAll('input:checked')].map(input => input.value);
+
+    if (!name) return showFormError('메뉴 이름을 입력해 주세요', nameInput);
+    if (meals.length === 0) {
+      return showFormError('끼니를 하나 이상 골라 주세요', $('mealChecks').querySelector('input'));
+    }
+    if (menus.some(m => m.name === name && m.category === category)) {
+      return showFormError('이미 있는 메뉴예요', nameInput);
+    }
+
+    menus.push({
+      id: `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      name,
+      category,
+      meals,
+    });
+    saveMenus();
+    nameInput.value = '';
+    nameInput.removeAttribute('aria-invalid');
+    nameInput.focus();
+    setFormMsg(`${name}을(를) 추가했어요`, true);
+    renderMenuList();
+    buildWheel();
+  });
+
+  $('menuList').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-id]');
+    if (!btn) return;
+    const index = menus.findIndex(m => m.id === btn.dataset.id);
+    if (index === -1) return;
+    const position = [...$('menuList').querySelectorAll('.del')].indexOf(btn);
+    const [removed] = menus.splice(index, 1);
+    saveMenus();
+    setFormMsg('');
+    renderMenuList();
+    buildWheel();
+
+    // 지운 자리의 다음 삭제 버튼으로 포커스를 옮겨, 이어서 지우거나 Tab으로 계속 갈 수 있게 한다
+    const dels = $('menuList').querySelectorAll('.del');
+    (dels[Math.min(position, dels.length - 1)] ?? nameInput).focus();
+
+    showToast(`${removed.name}을(를) 삭제했어요`, () => {
+      if (menus.some(m => m.id === removed.id)) return;
+      menus.splice(Math.min(index, menus.length), 0, removed);
+      saveMenus();
+      renderMenuList();
+      buildWheel();
+      (findDeleteButton(removed.id) ?? nameInput).focus();
+    }, () => nameInput);
+  });
+
+  $('resetMenus').addEventListener('click', () => {
+    const previous = menus;
+    menus = cloneDefaults();
+    saveMenus();
+    setFormMsg('');
+    renderMenuList();
+    buildWheel();
+    showToast('기본 메뉴 목록으로 되돌렸어요', () => {
+      menus = previous;
+      saveMenus();
+      renderMenuList();
+      buildWheel();
+      $('resetMenus').focus();
+    }, () => $('resetMenus'));
+  });
+
+  $('toast').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn || !pendingUndo) return;
+    const { undo, returnFocus } = pendingUndo;
+    closeToast();
+    if (btn.dataset.action === 'undo') undo(); // undo가 포커스 위치도 정한다
+    else returnFocus().focus();
+  });
+
+  // 다른 탭에서 바꾼 값을 받아 와서, 이 탭이 나중에 저장할 때 덮어쓰지 않게 한다
+  window.addEventListener('storage', e => {
+    if (e.key !== null && e.key !== KEYS.menus && e.key !== KEYS.history) return;
+    menus = loadMenus();
+    historyItems = loadHistory();
+    renderMenuList();
+    renderHistory();
+    buildWheel();
+  });
+
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(drawWheel, 100);
+  });
+
+  renderFilters();
+  renderForm();
+  renderMenuList();
+  renderHistory();
+  buildWheel();
+</script>
+</body>
+</html>
